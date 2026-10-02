@@ -1,0 +1,6 @@
+{
+  "name": "RetroASMR - Opera Mini & Symbian Downloader",
+  "description": "High-performance ASMR search engine and multi-track downloader with backward compatibility for legacy devices, Opera Mini, Symbian OS, and modern browsers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
