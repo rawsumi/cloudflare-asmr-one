@@ -55,6 +55,25 @@ This starts the local Miniflare / Workerd runtime on `http://localhost:8787`.
 
 ## Configuration Files
 
+- `.github/workflows/deploy.yml`: Automated CI/CD GitHub Actions workflow.
 - `wrangler.jsonc`: Modern Wrangler configuration format with asset bindings.
 - `wrangler.toml`: Standard TOML configuration for compatibility with CI/CD runners.
 - `src/worker.ts`: Hono-powered Cloudflare Worker entry point.
+
+---
+
+## Automated Deployment via GitHub Actions
+
+A pre-configured GitHub Actions workflow is located in `.github/workflows/deploy.yml`. Whenever you push to `main` or `master`, GitHub Actions will build the Vite app and deploy to Cloudflare Workers automatically.
+
+### Setting Up GitHub Repository Secrets:
+
+1. In your GitHub repository, go to **Settings** > **Secrets and variables** > **Actions**.
+2. Click **New repository secret** and add:
+   - `CLOUDFLARE_API_TOKEN`:
+     - In the [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens), go to **My Profile** > **API Tokens** > **Create Token**.
+     - Choose the template **Edit Cloudflare Workers** (or create custom with Account: *Workers Scripts: Edit*).
+   - `CLOUDFLARE_ACCOUNT_ID`:
+     - Found on your Cloudflare Dashboard overview page in the right sidebar (labeled **Account ID**).
+3. Now, whenever you `git push` to your repository, GitHub Actions automatically deploys the updated worker and static assets!
+
