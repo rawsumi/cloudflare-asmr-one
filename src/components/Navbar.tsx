@@ -1,21 +1,32 @@
 import React from 'react';
-import { Radio, Smartphone, Info, ExternalLink, Zap, Terminal, Music } from 'lucide-react';
+import { Radio, Smartphone, Info, ExternalLink, Zap, Terminal, Music, Languages, Sparkles } from 'lucide-react';
+import { useTitleTranslation } from '../services/titleTranslationCache';
 
 interface NavbarProps {
   onOpenSimulator: () => void;
   onOpenGuide: () => void;
+  onOpenTranslator: () => void;
   quickRj: string;
   setQuickRj: (val: string) => void;
   onSearchRj: (rj: string) => void;
+  currentView?: 'browse' | 'translated';
+  onNavigateView?: (view: 'browse' | 'translated') => void;
+  vaultWorksCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenSimulator,
   onOpenGuide,
+  onOpenTranslator,
   quickRj,
   setQuickRj,
   onSearchRj,
+  currentView = 'browse',
+  onNavigateView,
+  vaultWorksCount,
 }) => {
+  const { displayMode, setDisplayMode, stats } = useTitleTranslation();
+
   const handleQuickSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (quickRj.trim()) {
@@ -47,6 +58,40 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
+        {/* View Switcher: Browse Catalog vs Translated Vault */}
+        {onNavigateView && (
+          <div className="flex items-center p-1 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-inner">
+            <button
+              type="button"
+              onClick={() => onNavigateView('browse')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                currentView === 'browse'
+                  ? 'bg-slate-700 text-white shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>Browse</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateView('translated')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                currentView === 'translated'
+                  ? 'bg-indigo-600 text-white shadow-sm font-bold'
+                  : 'text-indigo-300 hover:text-indigo-100'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Translated</span>
+              {vaultWorksCount !== undefined && vaultWorksCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/40 text-white font-bold">
+                  {vaultWorksCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Quick RJ Lookup Form */}
         <form onSubmit={handleQuickSubmit} className="hidden md:flex items-center gap-2">
           <div className="relative">
@@ -55,7 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               placeholder="Jump to RJ01632573..."
               value={quickRj}
               onChange={(e) => setQuickRj(e.target.value)}
-              className="w-48 lg:w-60 bg-slate-800/80 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500 transition"
+              className="w-44 lg:w-56 bg-slate-800/80 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500 transition"
             />
           </div>
           <button
@@ -67,16 +112,72 @@ export const Navbar: React.FC<NavbarProps> = ({
         </form>
 
         {/* Action buttons */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Manual Title & Track Translator trigger */}
+          <button
+            type="button"
+            onClick={onOpenTranslator}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600/30 to-purple-600/30 hover:from-indigo-600/50 hover:to-purple-600/50 text-indigo-200 border border-indigo-500/40 text-xs font-bold transition cursor-pointer shadow-sm"
+            title="Manually select titles and tracks to translate to English or Vietnamese (with cache)"
+          >
+            <Languages className="w-4 h-4 text-indigo-400" />
+            <span className="hidden sm:inline">Translate Titles</span>
+            <span className="sm:hidden">Translate</span>
+            {stats.total > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/40 text-white font-semibold">
+                {stats.total}
+              </span>
+            )}
+          </button>
+
+          {/* Quick Display Language Toggle */}
+          <div className="hidden lg:inline-flex items-center p-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs">
+            <button
+              type="button"
+              onClick={() => setDisplayMode('original')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                displayMode === 'original'
+                  ? 'bg-slate-700 text-white font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="View original Japanese/Chinese titles"
+            >
+              Orig
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayMode('en')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                displayMode === 'en'
+                  ? 'bg-blue-600 text-white font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Display titles in English"
+            >
+              🇬🇧 EN
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayMode('vi')}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                displayMode === 'vi'
+                  ? 'bg-red-600 text-white font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Hiển thị tiêu đề Tiếng Việt"
+            >
+              🇻🇳 VI
+            </button>
+          </div>
+
           {/* Simulator button */}
           <button
             onClick={onOpenSimulator}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold transition cursor-pointer"
             title="Open Interactive Symbian & Opera Mini Device Simulator"
           >
             <Smartphone className="w-4 h-4 text-indigo-400" />
-            <span className="hidden sm:inline">Symbian Simulator</span>
-            <span className="sm:hidden">Simulator</span>
+            <span className="hidden xl:inline">Symbian Simulator</span>
           </button>
 
           {/* Opera Mini Mode direct link */}
@@ -88,8 +189,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             title="Open pure server-rendered HTML version (Zero JavaScript required)"
           >
             <Zap className="w-4 h-4" />
-            <span className="hidden sm:inline">Open Opera Mini Mode</span>
-            <span className="sm:hidden">Lite Mode</span>
+            <span className="hidden sm:inline">Opera Mini Mode</span>
             <ExternalLink className="w-3 h-3 opacity-70" />
           </a>
 
@@ -106,3 +206,4 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+

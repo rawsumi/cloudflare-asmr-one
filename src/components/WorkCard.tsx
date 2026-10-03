@@ -1,7 +1,8 @@
 import React from 'react';
 import { WorkItem } from '../types/asmr';
 import { getWorkLanguageInfo } from '../services/api';
-import { Star, Download, Play, Music, Radio, User, FolderArchive, ExternalLink, Calendar, Globe } from 'lucide-react';
+import { useTitleTranslation } from '../services/titleTranslationCache';
+import { Star, Download, Play, Music, Radio, User, FolderArchive, ExternalLink, Calendar, Globe, Sparkles, Languages } from 'lucide-react';
 
 interface WorkCardProps {
   work: WorkItem;
@@ -10,6 +11,7 @@ interface WorkCardProps {
   onFilterByVa?: (vaName: string) => void;
   onFilterByCircle?: (circleName: string) => void;
   onFilterByTag?: (tagName: string) => void;
+  onTranslateWork?: (work: WorkItem) => void;
   activeTag?: string;
 }
 
@@ -20,13 +22,17 @@ export const WorkCard: React.FC<WorkCardProps> = ({
   onFilterByVa,
   onFilterByCircle,
   onFilterByTag,
+  onTranslateWork,
   activeTag,
 }) => {
+  const { getDisplayTitle, displayMode } = useTitleTranslation();
   const rjCode = work.source_id || `RJ${work.id}`;
   const coverUrl = work.thumbnailCoverUrl || work.samCoverUrl || work.mainCoverUrl;
   const vas = work.vas || [];
   const tags = work.tags?.slice(0, 4) || [];
   const langInfo = getWorkLanguageInfo(work);
+
+  const titleDisplay = getDisplayTitle(work.title);
 
   return (
     <div className="group bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl hover:shadow-red-950/20 transition duration-200 flex flex-col justify-between">
@@ -60,6 +66,15 @@ export const WorkCard: React.FC<WorkCardProps> = ({
               <span>{langInfo.primary.flag}</span>
               <span>{langInfo.primary.label}</span>
             </span>
+            {titleDisplay.isTranslated && (
+              <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-sm border flex items-center gap-1 ${
+                titleDisplay.lang === 'vi'
+                  ? 'bg-red-900/80 text-red-200 border-red-500/50'
+                  : 'bg-blue-900/80 text-blue-200 border-blue-500/50'
+              }`}>
+                <span>{titleDisplay.lang === 'vi' ? '🇻🇳 Dịch' : '🇬🇧 EN'}</span>
+              </span>
+            )}
             {work.rate_average_2dp ? (
               <span className="px-1.5 py-0.5 rounded-md bg-amber-500/90 text-slate-950 font-bold text-[11px] flex items-center gap-0.5 shadow-sm">
                 <Star className="w-3 h-3 fill-current" />
@@ -93,13 +108,20 @@ export const WorkCard: React.FC<WorkCardProps> = ({
         {/* Work Information */}
         <div className="p-4 space-y-2.5">
           {/* Title */}
-          <h3
-            onClick={() => onSelectWork(work)}
-            className="font-bold text-slate-100 text-sm line-clamp-2 leading-snug hover:text-red-400 transition cursor-pointer"
-            title={work.title}
-          >
-            {work.title}
-          </h3>
+          <div>
+            <h3
+              onClick={() => onSelectWork(work)}
+              className="font-bold text-slate-100 text-sm line-clamp-2 leading-snug hover:text-red-400 transition cursor-pointer"
+              title={titleDisplay.isTranslated ? `Original: ${work.title}` : work.title}
+            >
+              {titleDisplay.text}
+            </h3>
+            {titleDisplay.isTranslated && (
+              <p className="text-[11px] text-slate-400 line-clamp-1 italic mt-0.5" title={work.title}>
+                Orig: {work.title}
+              </p>
+            )}
+          </div>
 
           {/* Circle / Author */}
           <div className="text-xs text-slate-400 flex items-center gap-1.5 truncate">
@@ -210,6 +232,20 @@ export const WorkCard: React.FC<WorkCardProps> = ({
           <span>Tracks &amp; Download</span>
         </button>
 
+        {onTranslateWork && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTranslateWork(work);
+            }}
+            className="p-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 rounded-lg border border-indigo-500/30 transition cursor-pointer"
+            title="Translate title and tracks into English / Tiếng Việt"
+          >
+            <Languages className="w-4 h-4" />
+          </button>
+        )}
+
         <a
           href={`/api/download/playlist.m3u?id=${work.id}`}
           className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition"
@@ -231,3 +267,4 @@ export const WorkCard: React.FC<WorkCardProps> = ({
     </div>
   );
 };
+

@@ -18,6 +18,8 @@ interface SearchHeaderProps {
   setTag: (val: string) => void;
   nsfw: string;
   setNsfw: (val: string) => void;
+  autoTranslateLang?: string;
+  setAutoTranslateLang?: (val: string) => void;
   loading: boolean;
   totalCount: number;
 }
@@ -49,6 +51,8 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
   setTag,
   nsfw,
   setNsfw,
+  autoTranslateLang,
+  setAutoTranslateLang,
   loading,
   totalCount,
 }) => {
@@ -519,6 +523,31 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
               >
                 Asc &uarr;
               </button>
+            </div>
+
+            {/* Auto-Translate Titles Filter */}
+            <div className="flex items-center gap-1.5 bg-emerald-950/40 border border-emerald-500/40 rounded-lg px-2 py-0.5">
+              <span className="text-emerald-300 flex items-center gap-1 font-semibold text-[11px]">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> AI Titles:
+              </span>
+              <select
+                value={autoTranslateLang}
+                onChange={(e) => setAutoTranslateLang?.(e.target.value)}
+                className="bg-slate-900 border border-emerald-700/60 rounded px-2 py-0.5 text-emerald-200 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium cursor-pointer"
+              >
+                <option value="off">Off (Original)</option>
+                <option value="en">🇬🇧 English</option>
+                <option value="zh-hans">🇨🇳 简体中文</option>
+                <option value="zh-hant">🇹🇼 繁體中文</option>
+                <option value="ko">🇰🇷 한국어</option>
+                <option value="vi">🇻🇳 Tiếng Việt</option>
+                <option value="es">🇪🇸 Español</option>
+                <option value="fr">🇫🇷 Français</option>
+                <option value="de">🇩🇪 Deutsch</option>
+                <option value="ru">🇷🇺 Русский</option>
+                <option value="id">🇮🇩 Bahasa Indo</option>
+                <option value="th">🇹🇭 ไทย</option>
+              </select>
             </div>
 
             {/* Subtitle Filter */}

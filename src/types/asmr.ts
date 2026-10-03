@@ -13,6 +13,7 @@ export interface WorkItem {
   source_type?: string;
   source_url?: string;
   title: string;
+  translatedTitle?: string;
   circle_id?: number;
   name?: string; // circle name
   nsfw?: boolean;
@@ -61,6 +62,7 @@ export type TrackItemType = 'folder' | 'audio' | 'text' | 'image' | 'other';
 export interface TrackItem {
   type: TrackItemType;
   title: string;
+  translatedTitle?: string;
   hash?: string;
   size?: number;
   duration?: number;
@@ -79,6 +81,7 @@ export interface TrackItem {
 export interface FlatTrack {
   id: string; // hash or generated id
   title: string;
+  translatedTitle?: string;
   type: TrackItemType;
   size?: number;
   duration?: number;

@@ -321,8 +321,9 @@ export function flattenTrackTree(
   return flat;
 }
 
-export function getDownloadProxyUrl(targetUrl: string, filename: string): string {
-  return `/api/download/file?url=${encodeURIComponent(targetUrl)}&name=${encodeURIComponent(filename)}`;
+export function getDownloadProxyUrl(targetUrl: string, _filename: string): string {
+  // Let the user download directly from the original server instead of proxying
+  return targetUrl || '#';
 }
 
 export function formatBytes(bytes?: number): string {
@@ -352,24 +353,84 @@ export interface TranslateTextResponse {
   translatedText: string;
   targetLang: string;
   sourceLang: string;
+  detectedSourceLang?: string;
   mode: 'translated' | 'bilingual' | 'annotations';
   charCount: number;
   engine: string;
 }
 
+export function detectScriptLanguage(text: string): { code: string; name: string; flag: string } {
+  if (!text || !text.trim()) return { code: 'auto', name: 'Auto-detected', flag: '' };
+
+  // Clean timecodes, track markers, file tags, and metadata to focus detection on spoken dialogue
+  const cleanedText = text
+    .replace(/\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]/g, '')
+    .replace(/\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3}/g, '')
+    .replace(/\[(?:SE|BGM|CV|Track|Scene|Chapter|Vol|No|Title|Artist|Album)[^\]]*\]/gi, '')
+    .slice(0, 4000);
+
+  const sample = cleanedText.trim() || text.slice(0, 3000);
+
+  if (sample.match(/[\u3040-\u309F\u30A0-\u30FF]/g)?.length! >= 2) {
+    return { code: 'ja', name: 'Japanese (日本語)', flag: 'JP' };
+  }
+  if (sample.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g)?.length! >= 2) {
+    return { code: 'ko', name: 'Korean (한국어)', flag: 'KR' };
+  }
+  if (sample.match(/[\u4E00-\u9FFF]/g)?.length! >= 3) {
+    const trad = sample.match(/[體點與廣國變讓發無實後關門頭現動機專樣應開義過總業題邊聽經樂場隊導話術際觀帶區裏這個麼樣臺歡]/g);
+    const simp = sample.match(/[体点与广国变让发无实后关门头现动机专样应开义过总业题边听经乐场队导话术际观带区里这个么样台欢]/g);
+    if (trad && (!simp || trad.length > simp.length)) {
+      return { code: 'zh-hant', name: 'Traditional Chinese (繁體中文)', flag: 'TW' };
+    }
+    return { code: 'zh-hans', name: 'Simplified Chinese (简体中文)', flag: 'CN' };
+  }
+  if (sample.match(/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ]/gi)?.length! >= 2) {
+    return { code: 'vi', name: 'Vietnamese (Tiếng Việt)', flag: 'VI' };
+  }
+  if (sample.match(/[\u0400-\u04FF]/g)?.length! >= 3) {
+    return { code: 'ru', name: 'Russian (Русский)', flag: 'RU' };
+  }
+  if (sample.match(/[\u0E00-\u0E7F]/g)?.length! >= 3) {
+    return { code: 'th', name: 'Thai (ไทย)', flag: 'TH' };
+  }
+  if (sample.match(/[äöüßÄÖÜ]/g)) {
+    return { code: 'de', name: 'German (Deutsch)', flag: 'DE' };
+  }
+  if (sample.match(/[éèêëçœÉÈÊËÇ]/g)) {
+    return { code: 'fr', name: 'French (Français)', flag: 'FR' };
+  }
+  if (sample.match(/[ñÑ¿¡áíóúÁÍÓÚ]/g)) {
+    return { code: 'es', name: 'Spanish (Español)', flag: 'ES' };
+  }
+  if (sample.match(/[ãõâêôáéíóúçÃÕÂÊÔÁÉÍÓÚÇ]/g)) {
+    return { code: 'pt', name: 'Portuguese (Português)', flag: 'PT' };
+  }
+  if (sample.match(/[àèéìòùÀÈÉÌÒÙ]/g)) {
+    return { code: 'it', name: 'Italian (Italiano)', flag: 'IT' };
+  }
+  if (/\b(?:yang|dan|di|ini|itu|untuk|dengan|kamu|aku|tidak|adalah|bisa|saya)\b/i.test(sample)) {
+    return { code: 'id', name: 'Indonesian (Bahasa Indonesia)', flag: 'ID' };
+  }
+  if (sample.match(/[a-zA-Z]/g)?.length! > 10) {
+    return { code: 'en', name: 'English', flag: 'EN' };
+  }
+  return { code: 'auto', name: 'Auto-detected', flag: '' };
+}
+
 export const SCRIPT_TRANSLATE_LANGUAGES = [
-  { code: 'en', label: 'English', flag: '🇬🇧', short: 'ENG' },
-  { code: 'zh-hans', label: '简体中文 (Simplified Chinese)', flag: '🇨🇳', short: '简中' },
-  { code: 'zh-hant', label: '繁體中文 (Traditional Chinese)', flag: '🇹🇼', short: '繁中' },
-  { code: 'ko', label: '한국어 (Korean)', flag: '🇰🇷', short: '한국어' },
-  { code: 'ja', label: '日本語 (Japanese)', flag: '🇯🇵', short: '日本語' },
-  { code: 'vi', label: 'Tiếng Việt (Vietnamese)', flag: '🇻🇳', short: 'Việt' },
-  { code: 'es', label: 'Español (Spanish)', flag: '🇪🇸', short: 'ESP' },
-  { code: 'fr', label: 'Français (French)', flag: '🇫🇷', short: 'FRA' },
-  { code: 'de', label: 'Deutsch (German)', flag: '🇩🇪', short: 'DEU' },
-  { code: 'ru', label: 'Русский (Russian)', flag: '🇷🇺', short: 'RUS' },
-  { code: 'id', label: 'Bahasa Indonesia', flag: '🇮🇩', short: 'IDN' },
-  { code: 'th', label: 'ไทย (Thai)', flag: '🇹🇭', short: 'THA' },
+  { code: 'en', label: 'English', flag: 'EN', short: 'ENG' },
+  { code: 'zh-hans', label: 'Simplified Chinese (简体中文)', flag: 'CN', short: '简中' },
+  { code: 'zh-hant', label: 'Traditional Chinese (繁體中文)', flag: 'TW', short: '繁中' },
+  { code: 'ko', label: 'Korean (한국어)', flag: 'KR', short: '한국어' },
+  { code: 'ja', label: 'Japanese (日本語)', flag: 'JP', short: '日本語' },
+  { code: 'vi', label: 'Vietnamese (Tiếng Việt)', flag: 'VI', short: 'Việt' },
+  { code: 'es', label: 'Spanish (Español)', flag: 'ES', short: 'ESP' },
+  { code: 'fr', label: 'French (Français)', flag: 'FR', short: 'FRA' },
+  { code: 'de', label: 'German (Deutsch)', flag: 'DE', short: 'DEU' },
+  { code: 'ru', label: 'Russian (Русский)', flag: 'RU', short: 'RUS' },
+  { code: 'id', label: 'Indonesian (Bahasa Indonesia)', flag: 'ID', short: 'IDN' },
+  { code: 'th', label: 'Thai (ไทย)', flag: 'TH', short: 'THA' },
 ];
 
 export async function translateScriptText(params: TranslateTextParams): Promise<TranslateTextResponse> {
@@ -384,4 +445,42 @@ export async function translateScriptText(params: TranslateTextParams): Promise<
   }
   return res.json();
 }
+
+export interface TranslateTitlesResponse {
+  translations: Record<string, string>;
+  targetLang: 'en' | 'vi';
+  engine: string;
+  fromCacheCount: number;
+  newTranslatedCount: number;
+}
+
+export async function translateBatchTitles(
+  texts: string[],
+  targetLang: 'en' | 'vi' = 'en'
+): Promise<TranslateTitlesResponse> {
+  const cleanTexts = texts.map((t) => t.trim()).filter(Boolean);
+  if (cleanTexts.length === 0) {
+    return {
+      translations: {},
+      targetLang,
+      engine: 'none',
+      fromCacheCount: 0,
+      newTranslatedCount: 0,
+    };
+  }
+
+  const res = await fetch('/api/translate/titles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texts: cleanTexts, targetLang }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Title translation failed (${res.status})`);
+  }
+
+  return res.json();
+}
+
 

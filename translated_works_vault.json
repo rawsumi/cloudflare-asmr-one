@@ -1,0 +1,24 @@
+[
+  {
+    "id": "123456",
+    "rjCode": "RJ01234567",
+    "originalTitle": "【ASMR】耳かきと甘い囁き",
+    "translatedTitle": {
+      "en": "[ASMR] Ear Cleaning and Sweet Whispers"
+    },
+    "translatedTracksCount": 2,
+    "totalTracksCount": 2,
+    "translatedAt": "2026-10-03T07:54:54.250Z",
+    "coverUrl": "",
+    "circle": "Test Circle",
+    "vas": "CV Test",
+    "trackTranslations": {
+      "トラック01: プロローグ": {
+        "en": "Track 01: Prologue"
+      },
+      "トラック02: 左耳の耳かき": {
+        "en": "Track 02: Left Ear Cleaning"
+      }
+    }
+  }
+]

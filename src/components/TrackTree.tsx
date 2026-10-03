@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TrackItem, FlatTrack } from '../types/asmr';
 import { formatBytes, formatDuration, getDownloadProxyUrl } from '../services/api';
+import { useTitleTranslation } from '../services/titleTranslationCache';
 import {
   Folder,
   FolderOpen,
@@ -67,10 +68,12 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   currentPath,
   depth,
 }) => {
+  const { getDisplayTitle } = useTitleTranslation();
   const [isOpen, setIsOpen] = useState(true);
   const [copied, setCopied] = useState(false);
 
   const isFolder = item.type === 'folder';
+  const titleDisplay = getDisplayTitle(item.title);
 
   const handleCopyUrl = (url: string) => {
     navigator.clipboard.writeText(url);
@@ -94,7 +97,16 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             ) : (
               <Folder className="w-4 h-4 text-amber-500 shrink-0" />
             )}
-            <span className="truncate">{item.title}</span>
+            <span className="truncate" title={titleDisplay.isTranslated ? `Original: ${item.title}` : item.title}>
+              {titleDisplay.text}
+            </span>
+            {titleDisplay.isTranslated && (
+              <span className={`text-[9px] px-1 rounded font-bold shrink-0 ${
+                titleDisplay.lang === 'vi' ? 'bg-red-900/60 text-red-300' : 'bg-blue-900/60 text-blue-300'
+              }`}>
+                {titleDisplay.lang.toUpperCase()}
+              </span>
+            )}
             <span className="text-[10px] text-slate-500 font-normal">({childCount} items)</span>
           </div>
           <span className="text-slate-500 text-[10px]">{isOpen ? '▼' : '▶'}</span>
@@ -129,7 +141,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 
   const flatTrack: FlatTrack = {
     id: item.hash || `${workId}_${currentPath}`,
-    title: item.title,
+    title: titleDisplay.isTranslated ? titleDisplay.text : item.title,
     type: item.type,
     size: item.size,
     duration: item.duration,
@@ -152,9 +164,26 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         {isImage && <FileImage className="w-4 h-4 text-emerald-400 shrink-0" />}
         {!isAudio && !isText && !isImage && <File className="w-4 h-4 text-slate-400 shrink-0" />}
 
-        <span className="truncate font-medium text-slate-200" title={item.title}>
-          {item.title}
-        </span>
+        <div className="truncate min-w-0">
+          <span className="truncate font-medium text-slate-200" title={titleDisplay.isTranslated ? `Original: ${item.title}` : item.title}>
+            {titleDisplay.text}
+          </span>
+          {titleDisplay.isTranslated && (
+            <span className="text-[10px] text-slate-500 line-clamp-1 italic ml-1">
+              ({item.title})
+            </span>
+          )}
+        </div>
+
+        {titleDisplay.isTranslated && (
+          <span className={`text-[9px] px-1 py-0.2 rounded font-bold shrink-0 ${
+            titleDisplay.lang === 'vi'
+              ? 'bg-red-900/60 text-red-300 border border-red-700/40'
+              : 'bg-blue-900/60 text-blue-300 border border-blue-700/40'
+          }`}>
+            {titleDisplay.lang === 'vi' ? 'VI' : 'EN'}
+          </span>
+        )}
 
         {item.size ? (
           <span className="text-[11px] text-slate-500 shrink-0">

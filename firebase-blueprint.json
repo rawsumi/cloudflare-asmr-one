@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "TranslatedWork": {
+      "title": "TranslatedWork",
+      "description": "Permanently translated audio drama / ASMR work record stored in the vault",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Work numeric ID or string identifier" },
+        "rjCode": { "type": "string", "description": "RJ code identifier (e.g. RJ01657200)" },
+        "originalTitle": { "type": "string", "description": "Original Japanese title" },
+        "translatedTitle": {
+          "type": "object",
+          "description": "Translated title by language code"
+        },
+        "translatedTracksCount": { "type": "number", "description": "Number of tracks translated" },
+        "totalTracksCount": { "type": "number", "description": "Total tracks count" },
+        "translatedAt": { "type": "string", "description": "ISO timestamp when translated" },
+        "coverUrl": { "type": "string", "description": "Work thumbnail cover image URL" },
+        "circle": { "type": "string", "description": "Circle / creator group name" },
+        "vas": { "type": "string", "description": "Voice actors / CVs" },
+        "tags": { "type": "array", "description": "Work tags" },
+        "trackTranslations": { "type": "object", "description": "Track title translation dictionary" }
+      },
+      "required": ["rjCode", "originalTitle"]
+    },
+    "TitleTranslation": {
+      "title": "TitleTranslation",
+      "description": "Individual cached title or track name translation",
+      "type": "object",
+      "properties": {
+        "originalText": { "type": "string", "description": "Original Japanese text" },
+        "en": { "type": "string", "description": "English translation" },
+        "vi": { "type": "string", "description": "Vietnamese translation" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp when updated" }
+      },
+      "required": ["originalText"]
+    },
+    "ScriptTranslation": {
+      "title": "ScriptTranslation",
+      "description": "Full script or subtitle translation record",
+      "type": "object",
+      "properties": {
+        "cacheKey": { "type": "string", "description": "Script translation cache key" },
+        "translatedText": { "type": "string", "description": "Translated script text content" },
+        "targetLang": { "type": "string", "description": "Target language code" },
+        "mode": { "type": "string", "description": "Translation mode (translated or bilingual)" },
+        "charCount": { "type": "number", "description": "Character count of translated text" },
+        "engine": { "type": "string", "description": "Translation engine name" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp when updated" }
+      },
+      "required": ["cacheKey", "translatedText", "targetLang"]
+    }
+  },
+  "firestore": {
+    "/translated_works/{workId}": {
+      "schema": { "$ref": "TranslatedWork" },
+      "description": "Collection of permanently saved translated ASMR works in the vault"
+    },
+    "/title_translations/{titleId}": {
+      "schema": { "$ref": "TitleTranslation" },
+      "description": "Global dictionary of translated titles and track names"
+    },
+    "/script_translations/{scriptId}": {
+      "schema": { "$ref": "ScriptTranslation" },
+      "description": "Collection of translated drama scripts and subtitles"
+    }
+  }
+}

@@ -14,7 +14,11 @@ import { AudioPlayer } from './components/AudioPlayer';
 import { ScriptViewerModal } from './components/ScriptViewerModal';
 import { OperaMiniSimulator } from './components/OperaMiniSimulator';
 import { RetroExplainModal } from './components/RetroExplainModal';
-import { Sparkles, Radio, Smartphone, AlertCircle, ChevronLeft, ChevronRight, HelpCircle, Clock, Flame, Star, Tag, X, Shield, AlertTriangle } from 'lucide-react';
+import { TitleTranslationModal } from './components/TitleTranslationModal';
+import { TranslatedWorksPage } from './components/TranslatedWorksPage';
+import { checkServerCachedTitles, fetchPermanentTranslatedWorks } from './services/clientGeminiTranslator';
+import { setCachedTitles } from './services/titleTranslationCache';
+import { Sparkles, Radio, Smartphone, AlertCircle, ChevronLeft, ChevronRight, HelpCircle, Clock, Flame, Star, Tag, X, Shield, AlertTriangle, Languages } from 'lucide-react';
 
 export default function App() {
   const [query, setQuery] = useState('');
@@ -33,6 +37,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // View mode: 'browse' (catalog search) or 'translated' (permanent translated vault)
+  const [currentView, setCurrentView] = useState<'browse' | 'translated'>('browse');
+  const [vaultCount, setVaultCount] = useState<number>(0);
+
   // Modals & Player State
   const [selectedWork, setSelectedWork] = useState<WorkItem | null>(null);
   const [currentTrack, setCurrentTrack] = useState<FlatTrack | null>(null);
@@ -40,6 +48,22 @@ export default function App() {
   const [scriptModal, setScriptModal] = useState<{ title: string; textUrl: string } | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
+  const [selectedWorkForTranslation, setSelectedWorkForTranslation] = useState<WorkItem | null>(null);
+
+  // Sync permanent vault statistics
+  const refreshVaultStats = useCallback(() => {
+    fetchPermanentTranslatedWorks('all').then((res) => {
+      setVaultCount(res.total || (res.works || []).length);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshVaultStats();
+    const handleUpdate = () => refreshVaultStats();
+    window.addEventListener('retroasmr-titles-updated', handleUpdate);
+    return () => window.removeEventListener('retroasmr-titles-updated', handleUpdate);
+  }, [refreshVaultStats]);
 
   // Perform search
   const executeSearch = useCallback(
@@ -63,7 +87,24 @@ export default function App() {
           tagFilter,
           nsfwFilter
         );
-        setWorks(data.works || []);
+        const fetchedWorks = data.works || [];
+        setWorks(fetchedWorks);
+
+        // Sync server cache for newly loaded work titles
+        const titles = fetchedWorks.map((w: WorkItem) => w.title).filter(Boolean);
+        if (titles.length > 0) {
+          checkServerCachedTitles(titles, 'en').then((res) => {
+            if (res.cached && Object.keys(res.cached).length > 0) {
+              setCachedTitles(res.cached, 'en');
+            }
+          });
+          checkServerCachedTitles(titles, 'vi').then((res) => {
+            if (res.cached && Object.keys(res.cached).length > 0) {
+              setCachedTitles(res.cached, 'vi');
+            }
+          });
+        }
+
         if (data.pagination) {
           setTotalCount(data.pagination.totalCount || 0);
           setPageSize(data.pagination.pageSize || 20);
@@ -156,13 +197,32 @@ export default function App() {
       <Navbar
         onOpenSimulator={() => setIsSimulatorOpen(true)}
         onOpenGuide={() => setIsGuideOpen(true)}
+        onOpenTranslator={() => {
+          setSelectedWorkForTranslation(null);
+          setIsTranslatorOpen(true);
+        }}
         quickRj={quickRj}
         setQuickRj={setQuickRj}
         onSearchRj={handleQuickRjSearch}
+        currentView={currentView}
+        onNavigateView={setCurrentView}
+        vaultWorksCount={vaultCount}
       />
 
-      {/* Search Header */}
-      <SearchHeader
+      {/* Main View Area: Translated Works Vault Page or Browse Catalog */}
+      {currentView === 'translated' ? (
+        <TranslatedWorksPage
+          onSelectWork={(work) => setSelectedWork(work)}
+          onOpenTranslator={(work) => {
+            setSelectedWorkForTranslation(work || null);
+            setIsTranslatorOpen(true);
+          }}
+          onNavigateToBrowse={() => setCurrentView('browse')}
+        />
+      ) : (
+        <>
+          {/* Search Header */}
+          <SearchHeader
         query={query}
         setQuery={setQuery}
         onSearch={handleSearchSubmit}
@@ -363,6 +423,10 @@ export default function App() {
                   onFilterByVa={handleFilterByVa}
                   onFilterByCircle={handleFilterByCircle}
                   onFilterByTag={handleFilterByTag}
+                  onTranslateWork={(w) => {
+                    setSelectedWorkForTranslation(w);
+                    setIsTranslatorOpen(true);
+                  }}
                 />
               ))}
             </div>
@@ -398,7 +462,9 @@ export default function App() {
             )}
           </div>
         )}
-      </main>
+          </main>
+        </>
+      )}
 
       {/* Fixed Bottom Audio Player */}
       <AudioPlayer
@@ -414,6 +480,10 @@ export default function App() {
           work={selectedWork}
           onClose={() => setSelectedWork(null)}
           onFilterByTag={handleFilterByTag}
+          onOpenTranslator={(w) => {
+            setSelectedWorkForTranslation(w);
+            setIsTranslatorOpen(true);
+          }}
           onPlayTrack={(track) => {
             setPlaylist([track]);
             setCurrentTrack(track);
@@ -425,6 +495,17 @@ export default function App() {
           onReadScript={(title, textUrl) => setScriptModal({ title, textUrl })}
         />
       )}
+
+      {/* Manual Title & Track Translation Modal */}
+      <TitleTranslationModal
+        isOpen={isTranslatorOpen}
+        onClose={() => {
+          setIsTranslatorOpen(false);
+          setSelectedWorkForTranslation(null);
+        }}
+        initialWork={selectedWorkForTranslation}
+        availableWorks={works}
+      />
 
       {/* Voice Drama Script Viewer Modal */}
       {scriptModal && (

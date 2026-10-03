@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { translateScript } from './services/translator';
+import { translateScript, translateTitles, translateTrackTree } from './services/translator';
 
 interface Env {
   ASSETS?: {
@@ -604,10 +604,41 @@ app.get('/api/search/:query?', async (c) => {
       if (tag) {
         data.works = data.works.filter((w: any) => matchesTag(w, tag));
       }
+
+      // Automatically translate work titles if transLang is requested
+      const transLang = c.req.query('translate') || c.req.query('transLang');
+      if (transLang && transLang !== 'ja' && transLang !== 'orig' && transLang !== 'off' && data.works.length > 0) {
+        try {
+          const titles = data.works.map((w: any) => w.title);
+          const transMap = await translateTitles(titles, transLang);
+          for (const w of data.works) {
+            if (w.title && transMap[w.title]) {
+              w.translatedTitle = transMap[w.title];
+            }
+          }
+        } catch (tErr) {
+          console.warn('Search title translation error in worker:', tErr);
+        }
+      }
     }
     return c.json(data);
   } catch (err: any) {
     return c.json({ error: err.message || 'Internal server error' }, 500);
+  }
+});
+
+// Title & Track Title Batch Translation API
+app.post('/api/translate/titles', async (c) => {
+  try {
+    const body: any = await c.req.json().catch(() => ({}));
+    const { titles, targetLang = 'en' } = body;
+    if (!titles || !Array.isArray(titles)) {
+      return c.json({ error: 'titles must be an array of strings' }, 400);
+    }
+    const translations = await translateTitles(titles, targetLang);
+    return c.json({ translations, targetLang });
+  } catch (err: any) {
+    return c.json({ error: 'Title translation failed', details: err.message }, 500);
   }
 });
 
@@ -623,7 +654,16 @@ app.get('/api/work/:id', async (c) => {
     if (!upstreamRes.ok) {
       return c.json({ error: `Upstream error ${upstreamRes.status}` }, upstreamRes.status as any);
     }
-    const data = await upstreamRes.json();
+    const data: any = await upstreamRes.json();
+
+    const transLang = c.req.query('translate') || c.req.query('transLang');
+    if (transLang && transLang !== 'ja' && transLang !== 'orig' && data?.title) {
+      const transMap = await translateTitles([data.title], transLang);
+      if (transMap[data.title]) {
+        data.translatedTitle = transMap[data.title];
+      }
+    }
+
     return c.json(data);
   } catch (err: any) {
     return c.json({ error: err.message || 'Internal server error' }, 500);
@@ -642,7 +682,13 @@ app.get('/api/tracks/:id', async (c) => {
     if (!upstreamRes.ok) {
       return c.json({ error: `Upstream error ${upstreamRes.status}` }, upstreamRes.status as any);
     }
-    const data = await upstreamRes.json();
+    let data: any = await upstreamRes.json();
+
+    const transLang = c.req.query('translate') || c.req.query('transLang');
+    if (transLang && transLang !== 'ja' && transLang !== 'orig' && Array.isArray(data)) {
+      data = await translateTrackTree(data, transLang);
+    }
+
     return c.json(data);
   } catch (err: any) {
     return c.json({ error: err.message || 'Internal server error' }, 500);
@@ -932,6 +978,7 @@ app.get('/classic', async (c) => {
   const tagMode = c.req.query('tag') || '';
   const order = c.req.query('order') || 'release';
   const sort = c.req.query('sort') || 'desc';
+  const transLang = c.req.query('transLang') || '';
 
   let popularHtml = '';
   try {
@@ -957,6 +1004,17 @@ app.get('/classic', async (c) => {
         works = works.filter((w: any) => matchesTag(w, tagMode));
       }
       works = works.slice(0, 10);
+
+      // Auto-translate work titles if transLang is requested
+      let titleTranslations: Record<string, string> = {};
+      if (transLang && transLang !== 'orig' && works.length > 0) {
+        try {
+          titleTranslations = await translateTitles(works.map((w: any) => w.title), transLang);
+        } catch (tErr) {
+          console.warn('Worker SSR title translation error:', tErr);
+        }
+      }
+
       const sortTitle = order === 'release' ? '🆕 Recent ASMR Releases (最新)' : order === 'dl_count' ? '🔥 Top Downloaded (人気)' : order === 'rating' ? '⭐ Highest Rated (高評価)' : '✨ Recently Added (新着)';
       popularHtml = `<h3>${sortTitle} ${tagMode ? `(#${escapeHtml(tagMode)})` : ''} (${langMode.toUpperCase()})</h3>`;
       for (const w of works) {
@@ -977,7 +1035,7 @@ app.get('/classic', async (c) => {
             Editions: ${edList
               .map(
                 (ed: any) =>
-                  `<a href="/classic/work/${ed.workno}?img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}">[${escapeHtml(
+                  `<a href="/classic/work/${ed.workno}?img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=${encodeURIComponent(transLang)}">[${escapeHtml(
                     ed.label
                   )}: ${escapeHtml(ed.workno)}]</a>`
               )
@@ -986,7 +1044,12 @@ app.get('/classic', async (c) => {
         }
 
         const tagsHtml = (w.tags && w.tags.length > 0)
-          ? `<div class="meta-tag" style="margin-top:2px;">Tags: ${w.tags.slice(0, 5).map((t: any) => `<a href="/classic/search?tag=${encodeURIComponent(t.name)}&img=${imgMode}&lang=${langMode}&order=${order}" style="color:#0284c7; text-decoration:underline; margin-right:3px;">[#${escapeHtml(t.name)}]</a>`).join(' ')}</div>`
+          ? `<div class="meta-tag" style="margin-top:2px;">Tags: ${w.tags.slice(0, 5).map((t: any) => `<a href="/classic/search?tag=${encodeURIComponent(t.name)}&img=${imgMode}&lang=${langMode}&order=${order}&transLang=${encodeURIComponent(transLang)}" style="color:#0284c7; text-decoration:underline; margin-right:3px;">[#${escapeHtml(t.name)}]</a>`).join(' ')}</div>`
+          : '';
+
+        const translatedTitle = titleTranslations[w.title];
+        const translatedTitleHtml = translatedTitle && translatedTitle !== w.title
+          ? `<br /><span style="color:#059669; font-size:11px; font-weight:normal;">✨ ${escapeHtml(translatedTitle)}</span>`
           : '';
 
         popularHtml += `
@@ -997,7 +1060,8 @@ app.get('/classic', async (c) => {
             )}</span>
             <span class="badge badge-rating">&#9733; ${escapeHtml(String(w.rate_average_2dp || '0'))}</span>
             <div class="work-title">
-              <a href="/classic/work/${w.id}?img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}">${escapeHtml(w.title)}</a>
+              <a href="/classic/work/${w.id}?img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=${encodeURIComponent(transLang)}">${escapeHtml(w.title)}</a>
+              ${translatedTitleHtml}
             </div>
             ${coverHtml}
             <div class="meta-tag">
@@ -1007,7 +1071,7 @@ app.get('/classic', async (c) => {
             ${tagsHtml}
             ${editionsHtml}
             <div style="margin-top: 4px;">
-              <a href="/classic/work/${w.id}?img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}" class="btn btn-sm">[Open &amp; Download Tracks]</a>
+              <a href="/classic/work/${w.id}?img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=${encodeURIComponent(transLang)}" class="btn btn-sm">[Open &amp; Download Tracks]</a>
               <a href="/api/download/playlist.m3u?id=${w.id}" class="btn btn-green btn-sm">[RealPlayer M3U]</a>
             </div>
           </div>
@@ -1026,18 +1090,33 @@ app.get('/classic', async (c) => {
     (t) => `<option value="${escapeHtml(t.id)}" ${tagMode === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
   ).join('');
 
+  const transToolbarHtml = `
+    <div style="font-size:11px; margin-bottom:6px; background:#ecfdf5; padding:4px 8px; border:1px solid #a7f3d0; color:#065f46;">
+      <strong>🌐 Auto-Translate Titles:</strong> 
+      ${!transLang || transLang === 'orig' ? '<strong style="color:#047857;">[🇯🇵 Original]</strong>' : `<a href="/classic?order=${order}&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=orig">[🇯🇵 Original]</a>`} |
+      ${transLang === 'en' ? '<strong style="color:#047857;">[🇬🇧 ENG]</strong>' : `<a href="/classic?order=${order}&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=en">[🇬🇧 ENG]</a>`} |
+      ${transLang === 'zh-hans' ? '<strong style="color:#047857;">[🇨🇳 简中]</strong>' : `<a href="/classic?order=${order}&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=zh-hans">[🇨🇳 简中]</a>`} |
+      ${transLang === 'zh-hant' ? '<strong style="color:#047857;">[🇹🇼 繁中]</strong>' : `<a href="/classic?order=${order}&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=zh-hant">[🇹🇼 繁中]</a>`} |
+      ${transLang === 'ko' ? '<strong style="color:#047857;">[🇰🇷 한국어]</strong>' : `<a href="/classic?order=${order}&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=ko">[🇰🇷 한국어]</a>`} |
+      ${transLang === 'vi' ? '<strong style="color:#047857;">[🇻🇳 Tiếng Việt]</strong>' : `<a href="/classic?order=${order}&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=vi">[🇻🇳 Tiếng Việt]</a>`}
+    </div>
+  `;
+
   const content = `
+    ${transToolbarHtml}
+
     <div style="font-size:11px; margin-bottom:6px; background:#f1f5f9; padding:5px 8px; border:1px solid #cbd5e1;">
       <strong>View Mode:</strong> 
-      ${order === 'release' ? '<strong style="color:#b91c1c;">[🆕 Recent Releases]</strong>' : `<a href="/classic?order=release&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}">[🆕 Recent Releases]</a>`} |
-      ${order === 'dl_count' ? '<strong style="color:#b91c1c;">[🔥 Top Popular]</strong>' : `<a href="/classic?order=dl_count&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}">[🔥 Top Popular]</a>`} |
-      ${order === 'rating' ? '<strong style="color:#b91c1c;">[⭐ Top Rated]</strong>' : `<a href="/classic?order=rating&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}">[⭐ Top Rated]</a>`} |
-      ${order === 'create_date' ? '<strong style="color:#b91c1c;">[✨ Recently Added]</strong>' : `<a href="/classic?order=create_date&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}">[✨ Recently Added]</a>`}
+      ${order === 'release' ? '<strong style="color:#b91c1c;">[🆕 Recent Releases]</strong>' : `<a href="/classic?order=release&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=${encodeURIComponent(transLang)}">[🆕 Recent Releases]</a>`} |
+      ${order === 'dl_count' ? '<strong style="color:#b91c1c;">[🔥 Top Popular]</strong>' : `<a href="/classic?order=dl_count&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=${encodeURIComponent(transLang)}">[🔥 Top Popular]</a>`} |
+      ${order === 'rating' ? '<strong style="color:#b91c1c;">[⭐ Top Rated]</strong>' : `<a href="/classic?order=rating&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=${encodeURIComponent(transLang)}">[⭐ Top Rated]</a>`} |
+      ${order === 'create_date' ? '<strong style="color:#b91c1c;">[✨ Recently Added]</strong>' : `<a href="/classic?order=create_date&img=${imgMode}&lang=${langMode}&tag=${encodeURIComponent(tagMode)}&transLang=${encodeURIComponent(transLang)}">[✨ Recently Added]</a>`}
     </div>
 
     <div class="search-box">
       <form action="/classic/search" method="GET">
         <input type="hidden" name="img" value="${escapeHtml(imgMode)}" />
+        <input type="hidden" name="transLang" value="${escapeHtml(transLang)}" />
         <label for="q"><strong>Search ASMR.one:</strong></label><br />
         <input type="text" id="q" name="q" placeholder="RJ01632573, voice actor, or keyword" value="" style="margin-bottom:4px;" /><br />
         

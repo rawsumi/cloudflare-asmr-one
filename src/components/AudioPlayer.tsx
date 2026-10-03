@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { FlatTrack } from '../types/asmr';
 import { formatDuration, getDownloadProxyUrl } from '../services/api';
+import { useTitleTranslation } from '../services/titleTranslationCache';
 import {
   Play,
   Pause,
@@ -30,6 +31,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onTrackChange,
   onClosePlayer,
 }) => {
+  const { getDisplayTitle } = useTitleTranslation();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -181,6 +183,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {playlist.map((track, idx) => {
               const isCurrent = track.id === currentTrack.id;
+              const trackTitleDisplay = getDisplayTitle(track.title);
               return (
                 <button
                   key={`${track.id}_${idx}`}
@@ -193,7 +196,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 >
                   <div className="flex items-center gap-2 truncate">
                     <span className="text-[10px] text-slate-500 w-4">{idx + 1}</span>
-                    <span className="truncate">{track.title}</span>
+                    <span className="truncate" title={trackTitleDisplay.text}>{trackTitleDisplay.text}</span>
                   </div>
                   {track.duration && (
                     <span className="text-[10px] text-slate-400 font-mono shrink-0">
@@ -232,11 +235,11 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 <Music2 className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-xs font-bold text-white truncate" title={currentTrack.title}>
-                  {currentTrack.title}
+                <h4 className="text-xs font-bold text-white truncate" title={getDisplayTitle(currentTrack.title).text}>
+                  {getDisplayTitle(currentTrack.title).text}
                 </h4>
-                <p className="text-[11px] text-slate-400 truncate" title={currentTrack.workTitle || ''}>
-                  {currentTrack.workTitle || `Work #${currentTrack.workId}`}
+                <p className="text-[11px] text-slate-400 truncate" title={getDisplayTitle(currentTrack.workTitle || '').text}>
+                  {getDisplayTitle(currentTrack.workTitle || '').text || `Work #${currentTrack.workId}`}
                 </p>
               </div>
             </div>

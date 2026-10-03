@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { WorkItem, TrackItem, FlatTrack } from '../types/asmr';
 import { getWorkTracks, getWorkDetails, getWorkLanguageInfo, flattenTrackTree, formatBytes, formatDuration } from '../services/api';
+import { useTitleTranslation, setCachedTitles, hasCachedTitle } from '../services/titleTranslationCache';
+import {
+  getStoredGeminiApiKey,
+  executeTitleTranslationWorkflow,
+  checkServerCachedTitles,
+  uploadTranslationsToServer,
+  sanitizeErrorMessage,
+} from '../services/clientGeminiTranslator';
+import { GeminiApiKeyPromptModal } from './GeminiApiKeyPromptModal';
 import { TrackTree } from './TrackTree';
 import {
   X,
@@ -21,6 +30,7 @@ import {
   Check,
   Copy,
   Globe,
+  Languages,
 } from 'lucide-react';
 
 interface WorkDetailModalProps {
@@ -30,6 +40,7 @@ interface WorkDetailModalProps {
   onPlayAll: (tracks: FlatTrack[]) => void;
   onReadScript: (title: string, textUrl: string) => void;
   onFilterByTag?: (tagName: string) => void;
+  onOpenTranslator?: (work: WorkItem) => void;
 }
 
 export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
@@ -39,13 +50,21 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
   onPlayAll,
   onReadScript,
   onFilterByTag,
+  onOpenTranslator,
 }) => {
+  const { getDisplayTitle, displayMode, setDisplayMode } = useTitleTranslation();
   const [currentWork, setCurrentWork] = useState<WorkItem | null>(work);
   const [tracks, setTracks] = useState<TrackItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'tracks' | 'downloader' | 'retro'>('tracks');
   const [copiedBatch, setCopiedBatch] = useState(false);
+
+  // Client-side translation state
+  const [isTranslatingWork, setIsTranslatingWork] = useState(false);
+  const [translateStatus, setTranslateStatus] = useState<string | null>(null);
+  const [isKeyPromptOpen, setIsKeyPromptOpen] = useState(false);
+  const [pendingTargetLang, setPendingTargetLang] = useState<'en' | 'vi'>('en');
 
   useEffect(() => {
     setCurrentWork(work);
@@ -63,6 +82,25 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
         if (isMounted) {
           setTracks(data);
           setLoading(false);
+
+          // Sync server cache for work title and tracks
+          const allTexts = [
+            currentWork.title,
+            ...flattenTrackTree(data, currentWork.id, currentWork.title).map((t) => t.title),
+          ].filter(Boolean);
+
+          if (allTexts.length > 0) {
+            checkServerCachedTitles(allTexts, 'en').then((res) => {
+              if (res.cached && Object.keys(res.cached).length > 0) {
+                setCachedTitles(res.cached, 'en');
+              }
+            });
+            checkServerCachedTitles(allTexts, 'vi').then((res) => {
+              if (res.cached && Object.keys(res.cached).length > 0) {
+                setCachedTitles(res.cached, 'vi');
+              }
+            });
+          }
         }
       })
       .catch((err) => {
@@ -76,6 +114,88 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
       isMounted = false;
     };
   }, [currentWork]);
+
+  const handleTranslateThisWork = async (targetLang: 'en' | 'vi', keyOverride?: string) => {
+    if (!currentWork) return;
+
+    const flattenedTracks = flattenTrackTree(tracks, currentWork.id, currentWork.title);
+    const textsToTranslate = [
+      currentWork.title,
+      ...flattenedTracks.map((t) => t.title),
+    ].filter(Boolean);
+
+    const workInfo = {
+      id: currentWork.id,
+      rjCode: currentWork.source_id || `RJ${currentWork.id}`,
+      originalTitle: currentWork.title,
+      coverUrl: currentWork.thumbnailCoverUrl || currentWork.mainCoverUrl || currentWork.samCoverUrl || '',
+      circle: currentWork.name || '',
+      vas: (currentWork.vas || []).map((v) => v.name).join(', '),
+      totalTracks: flattenedTracks.length,
+    };
+
+    // CHECK: Are the work title and all tracks ALREADY translated?
+    const cacheCheck = await checkServerCachedTitles(textsToTranslate, targetLang);
+    if (cacheCheck.missing.length === 0 && textsToTranslate.length > 0) {
+      setCachedTitles(cacheCheck.cached, targetLang);
+      setDisplayMode(targetLang);
+      // Ensure work is permanently registered in the server vault
+      uploadTranslationsToServer(targetLang, cacheCheck.cached, workInfo).catch(() => {});
+      setTranslateStatus(
+        `✓ All titles and tracks for this work are already translated in ${
+          targetLang === 'vi' ? 'Tiếng Việt' : 'English'
+        }. Skipped translation (no API calls used).`
+      );
+      setTimeout(() => setTranslateStatus(null), 5000);
+      return;
+    }
+
+    const apiKey = (keyOverride || getStoredGeminiApiKey()).trim();
+    if (!apiKey) {
+      setPendingTargetLang(targetLang);
+      setIsKeyPromptOpen(true);
+      return;
+    }
+
+    setIsTranslatingWork(true);
+    setTranslateStatus(
+      `Translating ${cacheCheck.missing.length} missing item(s) client-side with Google Gemini...`
+    );
+
+    try {
+      const result = await executeTitleTranslationWorkflow(
+        textsToTranslate,
+        targetLang,
+        apiKey,
+        workInfo
+      );
+      setCachedTitles(result.translations, targetLang);
+      setDisplayMode(targetLang);
+      if (result.skipped) {
+        setTranslateStatus(
+          `✓ Already translated in ${targetLang === 'vi' ? 'Tiếng Việt' : 'English'}! Skipped translation.`
+        );
+      } else {
+        setTranslateStatus(
+          `✓ Translated ${result.newTranslatedCount} item(s) to ${
+            targetLang === 'vi' ? 'Tiếng Việt' : 'English'
+          } & permanently saved to Translated Library!`
+        );
+      }
+      setTimeout(() => setTranslateStatus(null), 6000);
+    } catch (err: any) {
+      console.error('Work translation failed:', err);
+      if (err.message === 'GEMINI_KEY_REQUIRED' || err.message?.includes('API_KEY')) {
+        setPendingTargetLang(targetLang);
+        setIsKeyPromptOpen(true);
+        setTranslateStatus('Google Gemini API Key is required to translate titles and tracks.');
+      } else {
+        setTranslateStatus(`Translation failed: ${sanitizeErrorMessage(err.message || 'Gemini error')}`);
+      }
+    } finally {
+      setIsTranslatingWork(false);
+    }
+  };
 
   const handleSwitchEdition = async (workno: string) => {
     try {
@@ -98,6 +218,7 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
   const totalSizeBytes = flattened.reduce((acc, t) => acc + (t.size || 0), 0);
   const coverUrl = currentWork.mainCoverUrl || currentWork.samCoverUrl || currentWork.thumbnailCoverUrl;
   const langInfo = getWorkLanguageInfo(currentWork);
+  const titleDisplay = getDisplayTitle(currentWork.title);
 
   const handleCopyBatchLinks = () => {
     const links = flattened
@@ -130,6 +251,15 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
                   <span>{langInfo.primary.flag}</span>
                   <span>{langInfo.primary.label}</span>
                 </span>
+                {titleDisplay.isTranslated && (
+                  <span className={`px-2 py-0.5 rounded-md font-bold text-xs flex items-center gap-1 border ${
+                    titleDisplay.lang === 'vi'
+                      ? 'bg-red-900/80 text-red-200 border-red-500/50'
+                      : 'bg-blue-900/80 text-blue-200 border-blue-500/50'
+                  }`}>
+                    <span>{titleDisplay.lang === 'vi' ? '🇻🇳 Đã dịch Tiếng Việt' : '🇬🇧 English Title'}</span>
+                  </span>
+                )}
                 {currentWork.rate_average_2dp ? (
                   <span className="px-2 py-0.5 rounded-md bg-amber-500/90 text-slate-950 font-bold text-xs flex items-center gap-1">
                     <Star className="w-3.5 h-3.5 fill-current" />
@@ -140,9 +270,14 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
                   DLs: <strong className="text-slate-200">{currentWork.dl_count?.toLocaleString() || 0}</strong>
                 </span>
               </div>
-              <h2 className="text-base sm:text-lg font-bold text-white leading-snug line-clamp-2" title={currentWork.title}>
-                {currentWork.title}
+              <h2 className="text-base sm:text-lg font-bold text-white leading-snug line-clamp-2" title={titleDisplay.isTranslated ? `Original: ${currentWork.title}` : currentWork.title}>
+                {titleDisplay.text}
               </h2>
+              {titleDisplay.isTranslated && (
+                <p className="text-xs text-slate-400 italic">
+                  Original: {currentWork.title}
+                </p>
+              )}
               <div className="text-xs text-slate-400 flex items-center gap-3 flex-wrap">
                 <span>Circle: <strong className="text-indigo-400">{currentWork.name || 'Unknown'}</strong></span>
                 {currentWork.vas && currentWork.vas.length > 0 && (
@@ -253,22 +388,113 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
               <Radio className="w-4 h-4 text-red-400" />
               <span>Opera Mini View</span>
             </button>
+
+            {onOpenTranslator && (
+              <button
+                type="button"
+                onClick={() => onOpenTranslator(currentWork)}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/40 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                title="Manually translate this work title & tracks into English or Tiếng Việt"
+              >
+                <Languages className="w-4 h-4 text-indigo-400" />
+                <span>Translate Titles (EN/VI)</span>
+              </button>
+            )}
           </div>
 
-          {/* Play All button */}
-          {audioTracks.length > 0 && (
-            <button
-              onClick={() => onPlayAll(audioTracks)}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-red-950/40 transition cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Play All ({audioTracks.length} tracks)</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Language switch quick toggle */}
+            <div className="flex items-center p-0.5 rounded-lg bg-slate-800 border border-slate-700 text-xs">
+              <button
+                type="button"
+                onClick={() => setDisplayMode('original')}
+                className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                  displayMode === 'original' ? 'bg-slate-700 text-white font-bold' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="View original Japanese/Chinese title"
+              >
+                Original
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisplayMode('en')}
+                className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                  displayMode === 'en' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="View English translated title"
+              >
+                🇬🇧 EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisplayMode('vi')}
+                className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                  displayMode === 'vi' ? 'bg-red-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Xem tiêu đề Tiếng Việt"
+              >
+                🇻🇳 VI
+              </button>
+            </div>
+
+            {/* Play All button */}
+            {audioTracks.length > 0 && (
+              <button
+                onClick={() => onPlayAll(audioTracks)}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-red-950/40 transition cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Play All ({audioTracks.length})</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tab Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          {/* Translation Status Notice */}
+          {translateStatus && (
+            <div className="p-3 rounded-xl bg-slate-800/90 border border-slate-700 flex items-center justify-between gap-3 text-xs text-indigo-300">
+              <div className="flex items-center gap-2">
+                {isTranslatingWork ? (
+                  <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                ) : (
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                )}
+                <span>{translateStatus}</span>
+              </div>
+              {translateStatus.includes('Key') && (
+                <button
+                  type="button"
+                  onClick={() => setIsKeyPromptOpen(true)}
+                  className="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] cursor-pointer"
+                >
+                  Enter Key
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Actionable Prompt if mode is EN or VI but work title is not translated yet */}
+          {displayMode !== 'original' && !titleDisplay.isTranslated && !isTranslatingWork && (
+            <div className="p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 flex items-center justify-between gap-3 flex-wrap text-xs shadow-sm">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="text-slate-200">
+                  This work title and {flattened.length} track(s) are not yet translated in {displayMode === 'vi' ? 'Tiếng Việt' : 'English'}.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTranslateThisWork(displayMode)}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 fill-current" />
+                <span>Translate with Gemini API Key</span>
+              </button>
+            </div>
+          )}
+
           {loading && (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400 space-y-3">
               <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
@@ -423,7 +649,7 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
                 </div>
                 <ul className="list-disc pl-5 space-y-1 text-slate-400">
                   <li><strong>RealPlayer Streaming:</strong> In Opera Mini or Symbian Web Browser, visit <code className="text-white">/classic/work/{currentWork.id}</code> and click <code className="text-white">[RealPlayer M3U]</code>. The phone will automatically launch RealPlayer and stream each track sequentially!</li>
-                  <li><strong>Direct File Download:</strong> Click <code className="text-white">[Download]</code> on any individual track to save it directly into <code className="text-white">E:\Sounds\Digital\</code> on your MicroSD card. Our proxy enforces HTTP Range requests so downloads can be paused and resumed if your 2G/3G connection drops!</li>
+                  <li><strong>Direct File Download:</strong> Click <code className="text-white">[Download]</code> on any individual track to download directly from the original audio server!</li>
                 </ul>
               </div>
             </div>
@@ -458,6 +684,14 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
           )}
         </div>
       </div>
+
+      <GeminiApiKeyPromptModal
+        isOpen={isKeyPromptOpen}
+        onClose={() => setIsKeyPromptOpen(false)}
+        onKeySaved={(key) => {
+          handleTranslateThisWork(pendingTargetLang, key);
+        }}
+      />
     </div>
   );
 };

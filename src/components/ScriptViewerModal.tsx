@@ -15,13 +15,22 @@ import {
   Sliders,
   CheckCircle2,
   BookOpen,
+  ArrowRight,
+  Globe,
+  Key,
 } from 'lucide-react';
 import {
   getDownloadProxyUrl,
   SCRIPT_TRANSLATE_LANGUAGES,
-  translateScriptText,
-  TranslateTextResponse,
+  detectScriptLanguage,
 } from '../services/api';
+import { GeminiApiKeyPromptModal } from './GeminiApiKeyPromptModal';
+import {
+  getStoredGeminiApiKey,
+  hasStoredGeminiApiKey,
+  checkServerCachedScript,
+  translateScriptWithGeminiClient,
+} from '../services/clientGeminiTranslator';
 
 interface ScriptViewerModalProps {
   title: string;
@@ -47,16 +56,23 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
   const [viewMode, setViewMode] = useState<ViewMode>('original');
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationCache, setTranslationCache] = useState<
-    Record<string, { translated: string; bilingual: string; engine: string; charCount: number }>
+    Record<string, { translated: string; bilingual: string; engine: string; charCount: number; detectedSourceLang?: string }>
   >({});
   const [translateError, setTranslateError] = useState<string | null>(null);
 
-  // UI state
+  // UI & Gemini AI state
   const [copied, setCopied] = useState<'orig' | 'trans' | 'bi' | false>(false);
   const [fontSize, setFontSize] = useState<number>(13);
   const [showLineNumbers, setShowLineNumbers] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(false);
+  const [progressMsg, setProgressMsg] = useState<string>('');
+
+  // Auto-detect source language from script content
+  const detectedSource = useMemo(() => {
+    return detectScriptLanguage(originalContent);
+  }, [originalContent]);
 
   // Fetch original script
   useEffect(() => {
@@ -87,7 +103,7 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
     };
   }, [textUrl]);
 
-  // Execute translation
+  // Execute translation via Gemini Flash Lite AI & Server Cache
   const handleTranslate = async (forceRefresh: boolean = false) => {
     const cacheKey = `${targetLang}_${tone}`;
     if (!forceRefresh && translationCache[cacheKey]) {
@@ -99,29 +115,74 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
     setTranslateError(null);
 
     try {
-      // Run translation for translated mode and bilingual mode
-      const [transRes, biRes] = await Promise.all([
-        translateScriptText({
-          text: originalContent,
-          targetLang,
-          mode: 'translated',
-          tone,
-        }),
-        translateScriptText({
-          text: originalContent,
-          targetLang,
-          mode: 'bilingual',
-          tone,
-        }),
-      ]);
+      // 1. Check server script cache first (Smart Skip - 0 tokens used if cached)
+      if (!forceRefresh) {
+        setProgressMsg('Checking server script cache...');
+        const serverCache = await checkServerCachedScript(textUrl || originalContent, targetLang, 'translated');
+        if (serverCache.cached && serverCache.translatedText) {
+          const biServerCache = await checkServerCachedScript(textUrl || originalContent, targetLang, 'bilingual');
+          
+          setTranslationCache((prev) => ({
+            ...prev,
+            [cacheKey]: {
+              translated: serverCache.translatedText!,
+              bilingual: biServerCache.translatedText || serverCache.translatedText!,
+              engine: 'server-cache',
+              charCount: serverCache.translatedText!.length,
+              detectedSourceLang: detectedSource.name,
+            },
+          }));
+
+          if (viewMode === 'original') setViewMode('translated');
+          setIsTranslating(false);
+          setProgressMsg('');
+          return;
+        }
+      }
+
+      // 2. Check for Gemini API key
+      const apiKey = getStoredGeminiApiKey();
+      if (!apiKey) {
+        setIsKeyModalOpen(true);
+        setIsTranslating(false);
+        setProgressMsg('');
+        return;
+      }
+
+      // 3. Client-side Gemini Flash Lite translation
+      setProgressMsg('Translating script client-side with Gemini Flash Lite...');
+      
+      const transRes = await translateScriptWithGeminiClient({
+        rawText: originalContent,
+        targetLang,
+        mode: 'translated',
+        apiKey,
+        hash: textUrl,
+        onProgress: (cur, tot) => {
+          setProgressMsg(`Translating chunk ${cur} of ${tot} with Gemini Flash Lite AI...`);
+        },
+      });
+
+      setProgressMsg('Building bilingual view with Gemini Flash Lite...');
+      const biRes = await translateScriptWithGeminiClient({
+        rawText: originalContent,
+        targetLang,
+        mode: 'bilingual',
+        apiKey,
+        hash: textUrl,
+        onProgress: (cur, tot) => {
+          setProgressMsg(`Building bilingual chunk ${cur} of ${tot}...`);
+        },
+      });
 
       setTranslationCache((prev) => ({
         ...prev,
         [cacheKey]: {
           translated: transRes.translatedText,
           bilingual: biRes.translatedText,
-          engine: transRes.engine,
-          charCount: transRes.charCount,
+          engine: 'client-gemini-flash-lite',
+          charCount: transRes.translatedText.length,
+          detectedSourceLang: detectedSource.name,
         },
       }));
 
@@ -129,9 +190,14 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
         setViewMode('translated');
       }
     } catch (err: any) {
-      setTranslateError(err.message || 'Translation failed');
+      if (err.message === 'GEMINI_KEY_REQUIRED' || err.message?.includes('API_KEY')) {
+        setIsKeyModalOpen(true);
+      } else {
+        setTranslateError(err.message || 'Script translation failed');
+      }
     } finally {
       setIsTranslating(false);
+      setProgressMsg('');
     }
   };
 
@@ -218,10 +284,14 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
               <FileText className="w-4 h-4" />
             </div>
             <div className="truncate">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-bold text-white text-sm truncate" title={title}>
                   {title}
                 </h3>
+                <span className="px-2 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-semibold rounded-full flex items-center gap-1">
+                  <span>{detectedSource.flag}</span>
+                  <span>{detectedSource.name}</span>
+                </span>
                 {currentTranslation && (
                   <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold rounded-full flex items-center gap-1">
                     <Sparkles className="w-2.5 h-2.5" />
@@ -230,7 +300,7 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
                 )}
               </div>
               <p className="text-[11px] text-slate-400">
-                {origLineCount} lines &bull; {origCharCount.toLocaleString()} chars &bull; Japanese Voice Drama Script
+                {origLineCount} lines &bull; {origCharCount.toLocaleString()} chars &bull; Audio Drama &amp; Subtitle Script
               </p>
             </div>
           </div>
@@ -401,6 +471,16 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
               </select>
             </div>
 
+            {/* Gemini API Key Button */}
+            <button
+              onClick={() => setIsKeyModalOpen(true)}
+              className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 transition cursor-pointer flex items-center gap-1.5 text-xs font-medium"
+              title="Configure Google Gemini API Key"
+            >
+              <Key className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline text-[11px]">API Key</span>
+            </button>
+
             {/* Translate Button */}
             <button
               onClick={() => handleTranslate(!!currentTranslation)}
@@ -415,8 +495,8 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
             >
               {isTranslating ? (
                 <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Translating Script...</span>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-300" />
+                  <span>Translating...</span>
                 </>
               ) : currentTranslation ? (
                 <>
@@ -426,7 +506,7 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
               ) : (
                 <>
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Translate with AI</span>
+                  <span>Translate with Gemini AI</span>
                 </>
               )}
             </button>
@@ -467,6 +547,36 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Real-time Progress / Cache Status Indicator Bar */}
+        {(isTranslating || progressMsg || currentTranslation) && (
+          <div className="px-4 py-1.5 bg-slate-900/95 border-b border-slate-800 text-xs flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {isTranslating ? (
+                <div className="flex items-center gap-2 text-amber-300 font-medium animate-pulse">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>{progressMsg || 'Processing script with Gemini 3.1 Flash Lite...'}</span>
+                </div>
+              ) : currentTranslation?.engine === 'server-cache' ? (
+                <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Loaded from Permanent Server Cache (Skipped translation, 0 API calls used)</span>
+                </div>
+              ) : currentTranslation ? (
+                <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Translated with Gemini 3.1 Flash Lite AI &amp; Permanently Saved to Server Cache</span>
+                </div>
+              ) : null}
+            </div>
+
+            {currentTranslation && !isTranslating && (
+              <span className="text-[10px] text-slate-400 font-mono">
+                {currentTranslation.charCount.toLocaleString()} chars &bull; Model: gemini-3.1-flash-lite
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Translation Tone Settings Bar (Collapsible) */}
         {showSettings && (
@@ -530,10 +640,13 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
           ) : viewMode === 'split' ? (
             /* Side by Side Split View */
             <div className="flex-1 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 overflow-hidden">
-              {/* Left Column: Original Japanese */}
+              {/* Left Column: Original Source Script */}
               <div className="flex flex-col h-full overflow-hidden">
                 <div className="p-2 bg-slate-900/80 border-b border-slate-800 text-[11px] font-bold text-slate-400 flex items-center justify-between">
-                  <span>🇯🇵 Original Japanese Script</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>{detectedSource.flag}</span>
+                    <span>Original Script ({detectedSource.name})</span>
+                  </span>
                   <button
                     onClick={() => handleCopy(originalContent, 'orig')}
                     className="hover:text-white text-[10px] font-medium"
@@ -659,6 +772,14 @@ export const ScriptViewerModal: React.FC<ScriptViewerModalProps> = ({
             )}
           </div>
         </div>
+        {/* Gemini API Key Prompt Modal */}
+        <GeminiApiKeyPromptModal
+          isOpen={isKeyModalOpen}
+          onClose={() => setIsKeyModalOpen(false)}
+          onKeySaved={() => handleTranslate(true)}
+          title="Google Gemini API Key Required for Script Translation"
+          description="To translate voice work scripts and subtitles, enter your Google Gemini API key. Script translations are executed client-side in your browser with Gemini Flash Lite and permanently saved to the server cache."
+        />
       </div>
     </div>
   );

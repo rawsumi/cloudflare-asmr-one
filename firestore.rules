@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permanent Translated Works Vault
+    match /translated_works/{workId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.originalTitle is string;
+      allow delete: if false;
+    }
+
+    // Global Title & Track Translations Dictionary
+    match /title_translations/{titleId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.originalText is string;
+      allow delete: if false;
+    }
+
+    // Full Script & Subtitle Translations Vault
+    match /script_translations/{scriptId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.translatedText is string;
+      allow delete: if false;
+    }
+  }
+}
