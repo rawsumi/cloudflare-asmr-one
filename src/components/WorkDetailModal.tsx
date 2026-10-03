@@ -29,6 +29,7 @@ interface WorkDetailModalProps {
   onPlayTrack: (track: FlatTrack) => void;
   onPlayAll: (tracks: FlatTrack[]) => void;
   onReadScript: (title: string, textUrl: string) => void;
+  onFilterByTag?: (tagName: string) => void;
 }
 
 export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
@@ -37,6 +38,7 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
   onPlayTrack,
   onPlayAll,
   onReadScript,
+  onFilterByTag,
 }) => {
   const [currentWork, setCurrentWork] = useState<WorkItem | null>(work);
   const [tracks, setTracks] = useState<TrackItem[]>([]);
@@ -176,6 +178,30 @@ export const WorkDetailModal: React.FC<WorkDetailModalProps> = ({
                       </button>
                     );
                   })}
+                </div>
+              )}
+              {/* Tags */}
+              {currentWork.tags && currentWork.tags.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-1 text-xs">
+                  <span className="text-slate-400 flex items-center gap-1 font-semibold text-[11px]">
+                    <Tag className="w-3 h-3 text-rose-400" /> Tags:
+                  </span>
+                  {currentWork.tags.map((t, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        if (onFilterByTag) {
+                          onFilterByTag(t.name);
+                          onClose();
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-red-600/30 text-slate-300 hover:text-red-200 border border-slate-700 hover:border-red-500/50 text-[11px] transition cursor-pointer flex items-center gap-1"
+                      title={`Filter catalog by #${t.name}`}
+                    >
+                      <span>#{t.name}</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

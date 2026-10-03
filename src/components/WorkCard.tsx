@@ -9,6 +9,8 @@ interface WorkCardProps {
   onPlayWork: (work: WorkItem) => void;
   onFilterByVa?: (vaName: string) => void;
   onFilterByCircle?: (circleName: string) => void;
+  onFilterByTag?: (tagName: string) => void;
+  activeTag?: string;
 }
 
 export const WorkCard: React.FC<WorkCardProps> = ({
@@ -17,6 +19,8 @@ export const WorkCard: React.FC<WorkCardProps> = ({
   onPlayWork,
   onFilterByVa,
   onFilterByCircle,
+  onFilterByTag,
+  activeTag,
 }) => {
   const rjCode = work.source_id || `RJ${work.id}`;
   const coverUrl = work.thumbnailCoverUrl || work.samCoverUrl || work.mainCoverUrl;
@@ -129,14 +133,27 @@ export const WorkCard: React.FC<WorkCardProps> = ({
           {/* Tags */}
           {tags.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap pt-0.5">
-              {tags.map((tag, idx) => (
-                <span
-                  key={idx}
-                  className="text-[10px] px-1.5 py-0.5 bg-slate-900/60 border border-slate-700/50 rounded text-slate-400"
-                >
-                  {tag.name}
-                </span>
-              ))}
+              {tags.map((t, idx) => {
+                const isSelected = activeTag === t.name;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onFilterByTag) onFilterByTag(t.name);
+                    }}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition cursor-pointer flex items-center gap-0.5 ${
+                      isSelected
+                        ? 'bg-red-600 text-white border-red-500 font-bold shadow-sm'
+                        : 'bg-slate-900/60 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700/50'
+                    }`}
+                    title={`Filter by tag #${t.name}`}
+                  >
+                    <span>#{t.name}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
 

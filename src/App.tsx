@@ -14,15 +14,17 @@ import { AudioPlayer } from './components/AudioPlayer';
 import { ScriptViewerModal } from './components/ScriptViewerModal';
 import { OperaMiniSimulator } from './components/OperaMiniSimulator';
 import { RetroExplainModal } from './components/RetroExplainModal';
-import { Sparkles, Radio, Smartphone, AlertCircle, ChevronLeft, ChevronRight, HelpCircle } from 'lucide-react';
+import { Sparkles, Radio, Smartphone, AlertCircle, ChevronLeft, ChevronRight, HelpCircle, Clock, Flame, Star, Tag, X, Shield, AlertTriangle } from 'lucide-react';
 
 export default function App() {
   const [query, setQuery] = useState('');
   const [quickRj, setQuickRj] = useState('');
-  const [order, setOrder] = useState('dl_count');
+  const [order, setOrder] = useState('release');
   const [sort, setSort] = useState('desc');
   const [hasSubtitle, setHasSubtitle] = useState(false);
   const [lang, setLang] = useState('all');
+  const [tag, setTag] = useState('');
+  const [nsfw, setNsfw] = useState('all');
   const [page, setPage] = useState(1);
 
   const [works, setWorks] = useState<WorkItem[]>([]);
@@ -41,12 +43,26 @@ export default function App() {
 
   // Perform search
   const executeSearch = useCallback(
-    async (searchQuery: string = query, pageNum: number = page) => {
+    async (
+      searchQuery: string = query,
+      pageNum: number = page,
+      tagFilter: string = tag,
+      nsfwFilter: string = nsfw
+    ) => {
       setLoading(true);
       setError(null);
 
       try {
-        const data = await searchWorks(searchQuery, pageNum, order, sort, hasSubtitle || undefined, lang);
+        const data = await searchWorks(
+          searchQuery,
+          pageNum,
+          order,
+          sort,
+          hasSubtitle || undefined,
+          lang,
+          tagFilter,
+          nsfwFilter
+        );
         setWorks(data.works || []);
         if (data.pagination) {
           setTotalCount(data.pagination.totalCount || 0);
@@ -60,42 +76,50 @@ export default function App() {
         setLoading(false);
       }
     },
-    [query, page, order, sort, hasSubtitle, lang]
+    [query, page, order, sort, hasSubtitle, lang, tag, nsfw]
   );
 
-  // Initial load: show popular works
+  // Initial load: show recent releases
   useEffect(() => {
-    executeSearch('', 1);
+    executeSearch('', 1, '', 'all');
   }, []);
 
-  // When order, sort, subtitle or language change, re-run search from page 1
+  // When order, sort, subtitle, language, tag, or nsfw change, re-run search from page 1
   useEffect(() => {
-    executeSearch(query, 1);
-  }, [order, sort, hasSubtitle, lang]);
+    executeSearch(query, 1, tag, nsfw);
+  }, [order, sort, hasSubtitle, lang, tag, nsfw]);
 
-  const handleSearchSubmit = (e?: React.FormEvent) => {
+  const handleSearchSubmit = (e?: React.FormEvent, customQuery?: string) => {
     if (e) e.preventDefault();
+    const q = customQuery !== undefined ? customQuery : query;
     setPage(1);
-    executeSearch(query, 1);
+    executeSearch(q, 1, tag, nsfw);
   };
 
   const handleQuickRjSearch = (rj: string) => {
     setQuery(rj);
+    setTag('');
     setPage(1);
-    executeSearch(rj, 1);
+    executeSearch(rj, 1, '', nsfw);
+  };
+
+  const handleFilterByTag = (tagName: string) => {
+    setTag((prev) => (prev === tagName ? '' : tagName));
+    setPage(1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleFilterByVa = (vaName: string) => {
     setQuery(vaName);
     setPage(1);
-    executeSearch(vaName, 1);
+    executeSearch(vaName, 1, tag, nsfw);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleFilterByCircle = (circleName: string) => {
     setQuery(circleName);
     setPage(1);
-    executeSearch(circleName, 1);
+    executeSearch(circleName, 1, tag, nsfw);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -150,6 +174,10 @@ export default function App() {
         setHasSubtitle={setHasSubtitle}
         lang={lang}
         setLang={setLang}
+        tag={tag}
+        setTag={setTag}
+        nsfw={nsfw}
+        setNsfw={setNsfw}
         loading={loading}
         totalCount={totalCount}
       />
@@ -171,7 +199,7 @@ export default function App() {
             <h3 className="font-bold text-white text-base">Unable to load ASMR works</h3>
             <p className="text-xs text-red-300">{error}</p>
             <button
-              onClick={() => executeSearch(query, page)}
+              onClick={() => executeSearch(query, page, tag)}
               className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold cursor-pointer"
             >
               Retry Search
@@ -187,32 +215,154 @@ export default function App() {
             </div>
             <h3 className="text-base font-bold text-white">No ASMR works found</h3>
             <p className="text-xs text-slate-400">
-              Try searching with an exact RJ code (e.g. <span className="text-slate-200">RJ01632573</span>) or broad keywords like &quot;whisper&quot; or &quot;binaural&quot;.
+              Try searching with an exact RJ code (e.g. <span className="text-slate-200">RJ01632573</span>), broad keywords, or clearing your tag filter.
             </p>
             <button
               onClick={() => {
                 setQuery('');
-                executeSearch('', 1);
+                setTag('');
+                setOrder('release');
+                setSort('desc');
+                executeSearch('', 1, '', 'all');
               }}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
+              className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold cursor-pointer transition"
             >
-              Reset to Popular Works
+              Reset to Recent Releases
             </button>
           </div>
         )}
 
         {/* Works Grid */}
         {!loading && !error && works.length > 0 && (
-          <div className="space-y-8">
+          <div className="space-y-6">
+            {/* Results Toolbar & Instant Sort Switcher */}
+            <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-lg">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-slate-400 font-medium">
+                  Showing <strong className="text-white font-bold">{works.length}</strong> of{' '}
+                  <strong className="text-slate-200">{totalCount}</strong> works
+                </span>
+
+                {query && (
+                  <span className="bg-slate-800 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700 flex items-center gap-1 font-mono">
+                    <span>"{query}"</span>
+                    <button
+                      onClick={() => {
+                        setQuery('');
+                        executeSearch('', 1, tag, nsfw);
+                      }}
+                      className="hover:text-red-400 p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {tag && (
+                  <span className="bg-red-950/60 text-red-200 px-2.5 py-1 rounded-lg border border-red-800/60 flex items-center gap-1 font-semibold">
+                    <Tag className="w-3 h-3 text-red-400" />
+                    <span>#{tag}</span>
+                    <button onClick={() => handleFilterByTag(tag)} className="hover:text-white p-0.5">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {nsfw === 'sfw' && (
+                  <span className="bg-emerald-950/60 text-emerald-300 px-2 py-0.5 rounded-lg border border-emerald-800/60 flex items-center gap-1">
+                    <Shield className="w-3 h-3" /> SFW Only
+                  </span>
+                )}
+                {nsfw === 'nsfw' && (
+                  <span className="bg-rose-950/60 text-rose-300 px-2 py-0.5 rounded-lg border border-rose-800/60 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> 18+ Adult
+                  </span>
+                )}
+              </div>
+
+              {/* Sort Switcher Tabs */}
+              <div className="flex items-center gap-1 bg-slate-950/90 p-1 rounded-xl border border-slate-800 self-start md:self-auto overflow-x-auto max-w-full">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrder('release');
+                    setSort('desc');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    order === 'release' && sort === 'desc'
+                      ? 'bg-red-600 text-white font-bold shadow-md shadow-red-950/50'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Sort by latest release date (Recent first)"
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Recent</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrder('dl_count');
+                    setSort('desc');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    order === 'dl_count' && sort === 'desc'
+                      ? 'bg-red-600 text-white font-bold shadow-md shadow-red-950/50'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Sort by download count (All-time popular)"
+                >
+                  <Flame className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Top Popular</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrder('rating');
+                    setSort('desc');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    order === 'rating' && sort === 'desc'
+                      ? 'bg-red-600 text-white font-bold shadow-md shadow-red-950/50'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Sort by highest user ratings"
+                >
+                  <Star className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Top Rated</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrder('create_date');
+                    setSort('desc');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    order === 'create_date' && sort === 'desc'
+                      ? 'bg-red-600 text-white font-bold shadow-md shadow-red-950/50'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Sort by newly added catalog entries"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>New Added</span>
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
               {works.map((work) => (
                 <WorkCard
                   key={work.id}
                   work={work}
+                  activeTag={tag}
                   onSelectWork={(w) => setSelectedWork(w)}
                   onPlayWork={handlePlayWorkPreview}
                   onFilterByVa={handleFilterByVa}
                   onFilterByCircle={handleFilterByCircle}
+                  onFilterByTag={handleFilterByTag}
                 />
               ))}
             </div>
@@ -263,6 +413,7 @@ export default function App() {
         <WorkDetailModal
           work={selectedWork}
           onClose={() => setSelectedWork(null)}
+          onFilterByTag={handleFilterByTag}
           onPlayTrack={(track) => {
             setPlaylist([track]);
             setCurrentTrack(track);
